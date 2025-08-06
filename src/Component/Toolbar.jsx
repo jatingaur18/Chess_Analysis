@@ -5,10 +5,18 @@ const Toolbar = ({ onLoadFen, onLoadPgn }) => {
   const [pgnInput, setPgnInput] = useState("");
   const fileInputRef = useRef(null);
 
+
   const sanitizePgn = (rawPgn) => {
-    return rawPgn
-      .replace(/\r\n/g, '\n') // Normalize line endings
-      .trim(); // Trim whitespace from start and end
+    const headers = [];
+    const headerRegex = /\[[^\]]+\]/g;
+    const movetext = rawPgn.replace(headerRegex, (match) => {
+      headers.push(match);
+      return "";
+    });
+
+    const sanitizedMovetext = movetext.trim().replace(/\s+/g, " ");
+
+    return headers.join("\n") + "\n\n" + sanitizedMovetext;
   };
 
   const handleLoadFen = () => {
@@ -20,7 +28,7 @@ const Toolbar = ({ onLoadFen, onLoadPgn }) => {
 
   const handleLoadPgnFromText = () => {
     const sanitizedPgn = sanitizePgn(pgnInput);
-    if (sanitizedPgn) {
+    if (sanitizedPgn && sanitizedPgn.trim() !== "") {
       onLoadPgn(sanitizedPgn);
     } else {
       alert("Please paste PGN data into the text area first.");
