@@ -319,7 +319,7 @@ const ChessBoard = () => {
         </h1>
 
         {showPromotionDialog && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-75">
+          <div className="fixed inset-0 z-50 flex items-center justify-center ">
             <div className="bg-[#1e1e1e] p-6 rounded-lg border border-[#444444] shadow-2xl">
               <h3 className="text-lg font-medium mb-4 text-[#E0E0E0] text-center">
                 Choose promotion piece
