@@ -8,7 +8,7 @@ const getPieceImage = (piece) => {
   const colorName = piece.color === "w" ? "white" : "black";
   const pieceNames = { p: "pawn", r: "rook", n: "knight", b: "bishop", q: "queen", k: "king" };
   const pieceName = pieceNames[piece.type];
-  return `./src/assets/pieces-basic-png/${colorName}-${pieceName}.png`;
+  return `public/src/assets/pieces-basic-png/${colorName}-${pieceName}.png`;
 };
 
 const squareColor = (i, j) => (i + j) % 2 === 0 ? "bg-[#EBECD0]" : "bg-[#779556]";
@@ -44,73 +44,35 @@ const ChessBoard = () => {
   const boardRef = useRef(null);
   const hasDragged = useRef(false);
 
-  // --- MODIFIED STATE for arrows ---
-  const [arrows, setArrows] = useState([]);
-  const [arrowStart, setArrowStart] = useState(null);
-  const [previewArrow, setPreviewArrow] = useState(null); // State for live arrow preview
-
   const [isPlaying, setIsPlaying] = useState(false);
   const turn = game.turn();
 
-  const indexToSquare = useCallback((i, j) => {
-      const files = "abcdefgh";
-      const rank = boardOrientation === "white" ? 8 - i : i + 1;
-      const file = boardOrientation === "white" ? files[j] : files[7 - j];
-      return `${file}${rank}`;
-    }, [boardOrientation]);
-
-  // --- MODIFIED useEffect for better mouse handling ---
   useEffect(() => {
     const handleMouseMove = (e) => {
       if (isDragging) {
         setMousePosition({ x: e.clientX, y: e.clientY });
         hasDragged.current = true;
       }
-      // NEW: Logic for handling arrow preview while dragging mouse
-      if (arrowStart) {
-        const boardRect = boardRef.current?.getBoundingClientRect();
-        if (boardRect) {
-            const isInsideBoard = e.clientX >= boardRect.left && e.clientX <= boardRect.right && e.clientY >= boardRect.top && e.clientY <= boardRect.bottom;
-            if (isInsideBoard) {
-                const squareSize = boardRect.width / 8;
-                const x = e.clientX - boardRect.left;
-                const y = e.clientY - boardRect.top;
-                const colIndex = Math.floor(x / squareSize);
-                const rowIndex = Math.floor(y / squareSize);
-                const toSquare = indexToSquare(rowIndex, colIndex);
-                if (toSquare !== arrowStart) {
-                    setPreviewArrow({ from: arrowStart, to: toSquare });
-                } else {
-                    setPreviewArrow(null);
-                }
-            } else {
-                setPreviewArrow(null); // Hide preview if mouse leaves board
-            }
-        }
-      }
     };
+
     const handleGlobalMouseUp = (e) => {
       if (isDragging) {
         setIsDragging(false);
         setDraggedPiece(null);
         setDraggedFrom(null);
       }
-      if (arrowStart) {
-        const boardRect = boardRef.current?.getBoundingClientRect();
-        if (!boardRect || e.clientX < boardRect.left || e.clientX > boardRect.right || e.clientY < boardRect.top || e.clientY > boardRect.bottom) {
-          setArrowStart(null); // Cancel arrow if mouse is released outside
-        }
-        setPreviewArrow(null); // Always clear preview on mouse up
-      }
+      
       hasDragged.current = false;
     };
+
     document.addEventListener("mousemove", handleMouseMove);
     document.addEventListener("mouseup", handleGlobalMouseUp);
+    
     return () => {
       document.removeEventListener("mousemove", handleMouseMove);
       document.removeEventListener("mouseup", handleGlobalMouseUp);
     };
-  }, [isDragging, arrowStart, indexToSquare]);
+  }, [isDragging]);
 
   const resetInteractiveStates = useCallback(() => {
     setSelectedSquare(null);
@@ -120,9 +82,6 @@ const ChessBoard = () => {
     setIsDragging(false);
     setDraggedPiece(null);
     setDraggedFrom(null);
-    setArrows([]);
-    setArrowStart(null);
-    setPreviewArrow(null);
     setIsPlaying(false);
   }, []);
 
@@ -131,7 +90,6 @@ const ChessBoard = () => {
       setCurrentNode(currentNode.children[0]);
       setSelectedSquare(null);
       setPossibleMoves([]);
-      setArrows([]);
     }
   }, [currentNode]);
 
@@ -232,20 +190,26 @@ const ChessBoard = () => {
 
   const handleSquareClick = (i, j) => {
     if (hasDragged.current) return;
+    
     const square = indexToSquare(i, j);
+    
     if (selectedSquare && possibleMoves.includes(square)) {
       handleMove(selectedSquare, square);
       return;
     }
     const piece = game.get(square);
     if (piece && piece.color === turn) {
-      if (selectedSquare === square) { setSelectedSquare(null); setPossibleMoves([]); }
+      if (selectedSquare === square) { 
+        setSelectedSquare(null); 
+        setPossibleMoves([]); 
+      }
       else {
         setSelectedSquare(square);
         setPossibleMoves(game.moves({ square, verbose: true }).map((m) => m.to));
       }
     } else {
-      setSelectedSquare(null); setPossibleMoves([]);
+      setSelectedSquare(null); 
+      setPossibleMoves([]);
     }
   };
 
@@ -255,11 +219,8 @@ const ChessBoard = () => {
 
     if (e.button === 2) {
       e.preventDefault();
-      setArrowStart(square);
       return;
     }
-    
-    if (arrowStart) setArrowStart(null);
 
     const piece = game.get(square);
     if (piece && piece.color === turn) {
@@ -278,30 +239,7 @@ const ChessBoard = () => {
   const handleMouseUpOnSquare = (i, j) => {
     const toSquare = indexToSquare(i, j);
 
-    // Arrow logic for right-click
-    if (arrowStart && !isDragging) {
-      if (arrowStart === toSquare) {
-        // If right-clicking a single square, clear all arrows.
-        setArrows([]);
-      } else {
-        // Toggle arrow on/off
-        const newArrow = { from: arrowStart, to: toSquare };
-        setArrows(prevArrows => {
-          const existingIndex = prevArrows.findIndex(
-            a => a.from === newArrow.from && a.to === newArrow.to
-          );
-          if (existingIndex !== -1) {
-            return prevArrows.filter((_, index) => index !== existingIndex);
-          } else {
-            return [...prevArrows, newArrow];
-          }
-        });
-      }
-      setArrowStart(null);
-      return;
-    }
-
-    // Move logic for left-click drag release
+    // Handle piece drag and drop
     if (isDragging && draggedFrom && hasDragged.current) {
       if (possibleMoves.includes(toSquare)) {
         handleMove(draggedFrom, toSquare);
@@ -366,21 +304,11 @@ const ChessBoard = () => {
     resetInteractiveStates();
   };
 
-  const squareToCoords = (square) => {
+  const indexToSquare = (i, j) => {
     const files = "abcdefgh";
-    const file = square[0];
-    const rank = parseInt(square[1], 10);
-    const fileIndex = files.indexOf(file);
-    const rankIndex = 8 - rank;
-
-    const col = boardOrientation === "white" ? fileIndex : 7 - fileIndex;
-    const row = boardOrientation === "white" ? rankIndex : 7 - rankIndex;
-
-    const squareSize = boardRef.current ? boardRef.current.offsetWidth / 8 : 64;
-    return {
-      x: col * squareSize + squareSize / 2,
-      y: row * squareSize + squareSize / 2,
-    };
+    const rank = boardOrientation === "white" ? 8 - i : i + 1;
+    const file = boardOrientation === "white" ? files[j] : files[7 - j];
+    return `${file}${rank}`;
   };
 
   return (
@@ -467,9 +395,8 @@ const ChessBoard = () => {
                         key={`${rowIndex}-${colIndex}`}
                         onClick={() => handleSquareClick(rowIndex, colIndex)}
                         onMouseDown={(e) => handleMouseDown(e, rowIndex, colIndex)}
-                        onMouseUp={(e) => { e.button !== 2 && handleMouseUpOnSquare(rowIndex, colIndex) }}
-                        onMouseUpCapture={(e) => { e.button === 2 && handleMouseUpOnSquare(rowIndex, colIndex) }}
-                        className={`relative flex items-center justify-center aspect-square w-16 h-16 ${squareColor(rowIndex, colIndex)} cursor-pointer transition duration-200 ease-in-out select-none ${isSelected ? "ring-2 ring-yellow-400 z-10" : ""}`}
+                        onMouseUp={() => handleMouseUpOnSquare(rowIndex, colIndex)}
+                        className={`relative flex items-center justify-center aspect-square w-16 h-16 ${squareColor(rowIndex, colIndex)} cursor-pointer transition duration-200 ease-in-out select-none ${isSelected ? "ring-2 ring-[#888888] z-10" : ""}`}
                       >
                         {piece && !isBeingDragged && (
                           <img
@@ -499,42 +426,6 @@ const ChessBoard = () => {
                   })
                 )}
               </div>
-              <svg className="absolute top-0 left-0 w-full h-full pointer-events-none z-20">
-                <defs>
-                  <marker id="arrowhead" markerWidth="2.5" markerHeight="3.5" refX="2.2" refY="1.75" orient="auto">
-                    <polygon points="0 0, 2.5 1.75, 0 3.5" fill="#FBBF24" />
-                  </marker>
-                </defs>
-                {arrows.map((arrow, i) => {
-                  const from = squareToCoords(arrow.from);
-                  const to = squareToCoords(arrow.to);
-                  return (
-                    <line
-                      key={i}
-                      x1={from.x}
-                      y1={from.y}
-                      x2={to.x}
-                      y2={to.y}
-                      stroke="#FBBF24"
-                      strokeWidth="4"
-                      strokeOpacity="0.9"
-                      markerEnd="url(#arrowhead)"
-                    />
-                  );
-                })}
-                {previewArrow && (
-                  <line
-                    x1={squareToCoords(previewArrow.from).x}
-                    y1={squareToCoords(previewArrow.from).y}
-                    x2={squareToCoords(previewArrow.to).x}
-                    y2={squareToCoords(previewArrow.to).y}
-                    stroke="#FBBF24"
-                    strokeWidth="4"
-                    strokeOpacity="0.8"
-                    markerEnd="url(#arrowhead)"
-                  />
-                )}
-              </svg>
             </div>
 
             <div className="flex items-center justify-between w-full max-w-md mt-3 px-4">
@@ -601,9 +492,8 @@ const ChessBoard = () => {
                       key={`${rowIndex}-${colIndex}`}
                       onClick={() => handleSquareClick(rowIndex, colIndex)}
                       onMouseDown={(e) => handleMouseDown(e, rowIndex, colIndex)}
-                      onMouseUp={(e) => { e.button !== 2 && handleMouseUpOnSquare(rowIndex, colIndex) }}
-                      onMouseUpCapture={(e) => { e.button === 2 && handleMouseUpOnSquare(rowIndex, colIndex) }}
-                      className={`relative flex items-center justify-center aspect-square ${squareColor(rowIndex, colIndex)} cursor-pointer transition duration-200 ease-in-out select-none ${isSelected ? "ring-2 ring-yellow-400 z-10" : ""}`}
+                      onMouseUp={() => handleMouseUpOnSquare(rowIndex, colIndex)}
+                      className={`relative flex items-center justify-center aspect-square ${squareColor(rowIndex, colIndex)} cursor-pointer transition duration-200 ease-in-out select-none ${isSelected ? "ring-2 ring-[#888888] z-10" : ""}`}
                     >
                       {piece && !isBeingDragged && (
                         <img
@@ -633,42 +523,6 @@ const ChessBoard = () => {
                 })
               )}
             </div>
-            <svg className="absolute top-0 left-0 w-full h-full pointer-events-none z-20">
-              <defs>
-                <marker id="arrowhead-mobile" markerWidth="2.5" markerHeight="3.5" refX="2.2" refY="1.75" orient="auto">
-                  <polygon points="0 0, 2.5 1.75, 0 3.5" fill="#FBBF24" />
-                </marker>
-              </defs>
-              {arrows.map((arrow, i) => {
-                const from = squareToCoords(arrow.from);
-                const to = squareToCoords(arrow.to);
-                return (
-                  <line
-                    key={i}
-                    x1={from.x}
-                    y1={from.y}
-                    x2={to.x}
-                    y2={to.y}
-                    stroke="#FBBF24"
-                    strokeWidth="3"
-                    strokeOpacity="0.9"
-                    markerEnd="url(#arrowhead-mobile)"
-                  />
-                );
-              })}
-              {previewArrow && (
-                 <line
-                    x1={squareToCoords(previewArrow.from).x}
-                    y1={squareToCoords(previewArrow.from).y}
-                    x2={squareToCoords(previewArrow.to).x}
-                    y2={squareToCoords(previewArrow.to).y}
-                    stroke="#FBBF24"
-                    strokeWidth="3"
-                    strokeOpacity="0.8"
-                    markerEnd="url(#arrowhead-mobile)"
-                  />
-              )}
-            </svg>
           </div>
 
           <div className="text-center">
@@ -702,7 +556,7 @@ const ChessBoard = () => {
               canGoForward={currentNode.children.length > 0}
               currentTurn={turn}
             />
-            
+
             <MoveHistory
               historyRoot={historyRoot}
               currentNode={currentNode}
