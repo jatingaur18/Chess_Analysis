@@ -44,17 +44,49 @@ const ChessBoard = () => {
   const boardRef = useRef(null);
   const hasDragged = useRef(false);
 
+  // --- MODIFIED STATE for arrows ---
   const [arrows, setArrows] = useState([]);
   const [arrowStart, setArrowStart] = useState(null);
+  const [previewArrow, setPreviewArrow] = useState(null); // State for live arrow preview
 
   const [isPlaying, setIsPlaying] = useState(false);
   const turn = game.turn();
 
+  const indexToSquare = useCallback((i, j) => {
+      const files = "abcdefgh";
+      const rank = boardOrientation === "white" ? 8 - i : i + 1;
+      const file = boardOrientation === "white" ? files[j] : files[7 - j];
+      return `${file}${rank}`;
+    }, [boardOrientation]);
+
+  // --- MODIFIED useEffect for better mouse handling ---
   useEffect(() => {
     const handleMouseMove = (e) => {
       if (isDragging) {
         setMousePosition({ x: e.clientX, y: e.clientY });
         hasDragged.current = true;
+      }
+      // NEW: Logic for handling arrow preview while dragging mouse
+      if (arrowStart) {
+        const boardRect = boardRef.current?.getBoundingClientRect();
+        if (boardRect) {
+            const isInsideBoard = e.clientX >= boardRect.left && e.clientX <= boardRect.right && e.clientY >= boardRect.top && e.clientY <= boardRect.bottom;
+            if (isInsideBoard) {
+                const squareSize = boardRect.width / 8;
+                const x = e.clientX - boardRect.left;
+                const y = e.clientY - boardRect.top;
+                const colIndex = Math.floor(x / squareSize);
+                const rowIndex = Math.floor(y / squareSize);
+                const toSquare = indexToSquare(rowIndex, colIndex);
+                if (toSquare !== arrowStart) {
+                    setPreviewArrow({ from: arrowStart, to: toSquare });
+                } else {
+                    setPreviewArrow(null);
+                }
+            } else {
+                setPreviewArrow(null); // Hide preview if mouse leaves board
+            }
+        }
       }
     };
     const handleGlobalMouseUp = (e) => {
@@ -63,11 +95,12 @@ const ChessBoard = () => {
         setDraggedPiece(null);
         setDraggedFrom(null);
       }
-      if (arrowStart && e.button === 2) {
+      if (arrowStart) {
         const boardRect = boardRef.current?.getBoundingClientRect();
         if (!boardRect || e.clientX < boardRect.left || e.clientX > boardRect.right || e.clientY < boardRect.top || e.clientY > boardRect.bottom) {
-          setArrowStart(null);
+          setArrowStart(null); // Cancel arrow if mouse is released outside
         }
+        setPreviewArrow(null); // Always clear preview on mouse up
       }
       hasDragged.current = false;
     };
@@ -77,7 +110,7 @@ const ChessBoard = () => {
       document.removeEventListener("mousemove", handleMouseMove);
       document.removeEventListener("mouseup", handleGlobalMouseUp);
     };
-  }, [isDragging, arrowStart]);
+  }, [isDragging, arrowStart, indexToSquare]);
 
   const resetInteractiveStates = useCallback(() => {
     setSelectedSquare(null);
@@ -89,7 +122,8 @@ const ChessBoard = () => {
     setDraggedFrom(null);
     setArrows([]);
     setArrowStart(null);
-    setIsPlaying(false); // Stop playing on any interaction
+    setPreviewArrow(null);
+    setIsPlaying(false);
   }, []);
 
   const handleGoForward = useCallback(() => {
@@ -100,6 +134,13 @@ const ChessBoard = () => {
       setArrows([]);
     }
   }, [currentNode]);
+
+  const handleGoBack = () => {
+    if (currentNode.parent) {
+      setCurrentNode(currentNode.parent);
+      resetInteractiveStates();
+    }
+  };
 
   useEffect(() => {
     if (isPlaying && currentNode.children.length > 0) {
@@ -217,6 +258,8 @@ const ChessBoard = () => {
       setArrowStart(square);
       return;
     }
+    
+    if (arrowStart) setArrowStart(null);
 
     const piece = game.get(square);
     if (piece && piece.color === turn) {
@@ -235,16 +278,30 @@ const ChessBoard = () => {
   const handleMouseUpOnSquare = (i, j) => {
     const toSquare = indexToSquare(i, j);
 
+    // Arrow logic for right-click
     if (arrowStart && !isDragging) {
       if (arrowStart === toSquare) {
+        // If right-clicking a single square, clear all arrows.
         setArrows([]);
       } else {
-        setArrows(prev => [...prev, { from: arrowStart, to: toSquare }]);
+        // Toggle arrow on/off
+        const newArrow = { from: arrowStart, to: toSquare };
+        setArrows(prevArrows => {
+          const existingIndex = prevArrows.findIndex(
+            a => a.from === newArrow.from && a.to === newArrow.to
+          );
+          if (existingIndex !== -1) {
+            return prevArrows.filter((_, index) => index !== existingIndex);
+          } else {
+            return [...prevArrows, newArrow];
+          }
+        });
       }
       setArrowStart(null);
       return;
     }
 
+    // Move logic for left-click drag release
     if (isDragging && draggedFrom && hasDragged.current) {
       if (possibleMoves.includes(toSquare)) {
         handleMove(draggedFrom, toSquare);
@@ -304,23 +361,9 @@ const ChessBoard = () => {
     setBoardOrientation((prev) => (prev === "white" ? "black" : "white"));
   };
 
-  const handleGoBack = () => {
-    if (currentNode.parent) {
-      setCurrentNode(currentNode.parent);
-      resetInteractiveStates();
-    }
-  };
-
   const handleNodeClick = (node) => {
     setCurrentNode(node);
     resetInteractiveStates();
-  };
-
-  const indexToSquare = (i, j) => {
-    const files = "abcdefgh";
-    const rank = boardOrientation === "white" ? 8 - i : i + 1;
-    const file = boardOrientation === "white" ? files[j] : files[7 - j];
-    return `${file}${rank}`;
   };
 
   const squareToCoords = (square) => {
@@ -341,39 +384,211 @@ const ChessBoard = () => {
   };
 
   return (
-    <div className="min-h-screen w-full flex flex-col items-center justify-center bg-gray-900 p-4 text-white">
-      <h1 className="text-4xl font-bold mb-6">♟️ Chess Game</h1>
+    <div className="min-h-screen w-full bg-[#121212] text-[#E0E0E0]">
+      <div className="container mx-auto px-4 py-8">
+        <h1 className="text-3xl md:text-4xl font-light text-center mb-8 text-[#E0E0E0]">
+          Chess Analysis
+        </h1>
 
-      {showPromotionDialog && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="bg-white bg-opacity-90 backdrop-blur-sm p-6 rounded-lg border-2 border-gray-300 shadow-2xl">
-            <h3 className="text-lg font-semibold mb-4 text-gray-800 text-center">Choose promotion piece:</h3>
-            <div className="flex gap-4 mb-4">
-              {["q", "r", "b", "n"].map((p) => (
-                <button key={p} onClick={() => onPromotionSelect(p)} className="hover:bg-gray-200 hover:scale-110 p-2 rounded-lg transition-all duration-200 border border-gray-300 w-16 h-16 flex items-center justify-center">
-                  <img src={getPieceImage({ type: p, color: turn })} alt={`${turn === "w" ? "White" : "Black"} ${p}`} className="w-12 h-12" />
-                </button>
-              ))}
+        {showPromotionDialog && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-75">
+            <div className="bg-[#1e1e1e] p-6 rounded-lg border border-[#444444] shadow-2xl">
+              <h3 className="text-lg font-medium mb-4 text-[#E0E0E0] text-center">
+                Choose promotion piece
+              </h3>
+              <div className="flex gap-4 mb-4">
+                {["q", "r", "b", "n"].map((p) => (
+                  <button
+                    key={p}
+                    onClick={() => onPromotionSelect(p)}
+                    className="hover:bg-[#333333] p-2 rounded-lg transition-colors border border-[#444444] w-16 h-16 flex items-center justify-center"
+                  >
+                    <img
+                      src={getPieceImage({ type: p, color: turn })}
+                      alt={`${turn === "w" ? "White" : "Black"} ${p}`}
+                      className="w-12 h-12"
+                    />
+                  </button>
+                ))}
+              </div>
+              <button
+                onClick={cancelPromotion}
+                className="w-full px-4 py-2 bg-[#333333] hover:bg-[#444444] text-[#E0E0E0] rounded-lg transition-colors"
+              >
+                Cancel
+              </button>
             </div>
-            <button onClick={cancelPromotion} className="w-full px-4 py-2 bg-gray-500 hover:bg-gray-600 text-white rounded-lg font-semibold transition-colors duration-200">Cancel</button>
+          </div>
+        )}
+
+        {isDragging && draggedPiece && (
+          <div
+            className="fixed z-40 pointer-events-none"
+            style={{
+              left: mousePosition.x - dragOffset.x + 32,
+              top: mousePosition.y - dragOffset.y + 32,
+              transform: "translate(-50%, -50%)"
+            }}
+          >
+            <img src={getPieceImage(draggedPiece)} alt="Dragged piece" className="w-12 h-12" />
+          </div>
+        )}
+
+        {/* Desktop Layout */}
+        <div className="hidden lg:flex gap-6 pt-10 items-start justify-center max-w-7xl mx-auto">
+          <div className="flex-shrink-0">
+            <Toolbar
+              onLoadFen={handleLoadFen}
+              onLoadPgn={handleLoadPgn}
+              onGoBack={handleGoBack}
+              onGoForward={handleGoForward}
+              onPlay={() => setIsPlaying(p => !p)}
+              onReset={resetGame}
+              onFlip={flipBoard}
+              isPlaying={isPlaying}
+              canGoBack={!!currentNode.parent}
+              canGoForward={currentNode.children.length > 0}
+              currentTurn={turn}
+            />
+          </div>
+
+          <div className="flex flex-col items-center flex-shrink-0">
+            <div className="relative" ref={boardRef} onContextMenu={handleContextMenu}>
+              <div className="grid grid-cols-8 border-2 border-[#444444] rounded-lg shadow-2xl overflow-hidden">
+                {[...Array(8)].map((_, rowIndex) =>
+                  [...Array(8)].map((_, colIndex) => {
+                    const square = indexToSquare(rowIndex, colIndex);
+                    const piece = game.get(square);
+                    const isSelected = selectedSquare === square;
+                    const isTarget = possibleMoves.includes(square);
+                    const isBeingDragged = isDragging && draggedFrom === square;
+                    return (
+                      <div
+                        key={`${rowIndex}-${colIndex}`}
+                        onClick={() => handleSquareClick(rowIndex, colIndex)}
+                        onMouseDown={(e) => handleMouseDown(e, rowIndex, colIndex)}
+                        onMouseUp={(e) => { e.button !== 2 && handleMouseUpOnSquare(rowIndex, colIndex) }}
+                        onMouseUpCapture={(e) => { e.button === 2 && handleMouseUpOnSquare(rowIndex, colIndex) }}
+                        className={`relative flex items-center justify-center aspect-square w-16 h-16 ${squareColor(rowIndex, colIndex)} cursor-pointer transition duration-200 ease-in-out select-none ${isSelected ? "ring-2 ring-yellow-400 z-10" : ""}`}
+                      >
+                        {piece && !isBeingDragged && (
+                          <img
+                            src={getPieceImage(piece)}
+                            alt=""
+                            className={`w-12 h-12 ${piece.color === turn ? "cursor-grab active:cursor-grabbing" : ""}`}
+                            draggable={false}
+                          />
+                        )}
+                        {colIndex === 0 && (
+                          <div className="absolute left-1 top-1 text-xs text-gray-700 font-bold pointer-events-none">
+                            {boardOrientation === "white" ? 8 - rowIndex : rowIndex + 1}
+                          </div>
+                        )}
+                        {rowIndex === 7 && (
+                          <div className="absolute right-1 bottom-1 text-xs text-gray-700 font-bold pointer-events-none">
+                            {boardOrientation === "white" ? "abcdefgh"[colIndex] : "abcdefgh"[7 - colIndex]}
+                          </div>
+                        )}
+                        {isTarget && (
+                          <div className="absolute w-full h-full flex items-center justify-center">
+                            <div className="w-5 h-5 rounded-full bg-black bg-opacity-40 pointer-events-none"></div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+              <svg className="absolute top-0 left-0 w-full h-full pointer-events-none z-20">
+                <defs>
+                  <marker id="arrowhead" markerWidth="2.5" markerHeight="3.5" refX="2.2" refY="1.75" orient="auto">
+                    <polygon points="0 0, 2.5 1.75, 0 3.5" fill="#FBBF24" />
+                  </marker>
+                </defs>
+                {arrows.map((arrow, i) => {
+                  const from = squareToCoords(arrow.from);
+                  const to = squareToCoords(arrow.to);
+                  return (
+                    <line
+                      key={i}
+                      x1={from.x}
+                      y1={from.y}
+                      x2={to.x}
+                      y2={to.y}
+                      stroke="#FBBF24"
+                      strokeWidth="4"
+                      strokeOpacity="0.9"
+                      markerEnd="url(#arrowhead)"
+                    />
+                  );
+                })}
+                {previewArrow && (
+                  <line
+                    x1={squareToCoords(previewArrow.from).x}
+                    y1={squareToCoords(previewArrow.from).y}
+                    x2={squareToCoords(previewArrow.to).x}
+                    y2={squareToCoords(previewArrow.to).y}
+                    stroke="#FBBF24"
+                    strokeWidth="4"
+                    strokeOpacity="0.8"
+                    markerEnd="url(#arrowhead)"
+                  />
+                )}
+              </svg>
+            </div>
+
+            <div className="flex items-center justify-between w-full max-w-md mt-3 px-4">
+              <div className="text-lg font-medium text-[#B0B0B0]">
+                {boardOrientation === "white" ? player2Name : player1Name}
+                <span className="text-sm text-[#666666] ml-2">Black</span>
+              </div>
+              <div className="text-lg font-medium text-[#B0B0B0]">
+                {boardOrientation === "white" ? player1Name : player2Name}
+                <span className="text-sm text-[#666666] ml-2">White</span>
+              </div>
+            </div>
+
+            <div className="text-center mt-6">
+              {game.inCheck() && !game.isCheckmate() && (
+                <div className="text-orange-400 font-medium">Check</div>
+              )}
+              {game.isCheckmate() && (
+                <div className="text-red-400 font-bold">
+                  {turn === "w" ? "Black" : "White"} wins
+                </div>
+              )}
+              {game.isStalemate() && (
+                <div className="text-yellow-400">Stalemate</div>
+              )}
+              {game.isDraw() && !game.isCheckmate() && !game.isStalemate() && (
+                <div className="text-yellow-400">Draw</div>
+              )}
+            </div>
+          </div>
+
+          <div className="flex-shrink-0">
+            <MoveHistory
+              historyRoot={historyRoot}
+              currentNode={currentNode}
+              onNodeClick={handleNodeClick}
+            />
           </div>
         </div>
-      )}
 
-      {isDragging && draggedPiece && (
-        <div className="fixed z-40 pointer-events-none" style={{ left: mousePosition.x - dragOffset.x + 32, top: mousePosition.y - dragOffset.y + 32, transform: "translate(-50%, -50%)" }}>
-          <img src={getPieceImage(draggedPiece)} alt="Dragged piece" className="w-12 h-12" />
-        </div>
-      )}
-
-      <div className="flex flex-row items-start gap-8">
-        <Toolbar onLoadFen={handleLoadFen} onLoadPgn={handleLoadPgn} />
-        <div className="flex flex-col items-center">
-          <div className="text-xl font-semibold mb-2 text-gray-300 h-8">
-            {boardOrientation === "white" ? player2Name : player1Name}
+        <div className="lg:hidden flex flex-col items-center max-w-lg mx-auto space-y-6">
+          <div className="flex items-center justify-between w-full max-w-[90vw] px-4">
+            <div className="text-lg font-medium text-[#B0B0B0]">
+              {boardOrientation === "white" ? player2Name : player1Name}
+              <span className="text-sm text-[#666666] ml-2">Black</span>
+            </div>
+            <div className="text-lg font-medium text-[#B0B0B0]">
+              {boardOrientation === "white" ? player1Name : player2Name}
+              <span className="text-sm text-[#666666] ml-2">White</span>
+            </div>
           </div>
-          <div className="relative" ref={boardRef} onContextMenu={handleContextMenu}>
-            <div className="grid grid-cols-8 border-8 border-purple-600 rounded-md shadow-2xl">
+
+          <div className="relative w-full max-w-[90vw]" ref={boardRef} onContextMenu={handleContextMenu}>
+            <div className="grid grid-cols-8 border-2 border-[#444444] rounded-lg shadow-2xl overflow-hidden w-full">
               {[...Array(8)].map((_, rowIndex) =>
                 [...Array(8)].map((_, colIndex) => {
                   const square = indexToSquare(rowIndex, colIndex);
@@ -388,12 +603,31 @@ const ChessBoard = () => {
                       onMouseDown={(e) => handleMouseDown(e, rowIndex, colIndex)}
                       onMouseUp={(e) => { e.button !== 2 && handleMouseUpOnSquare(rowIndex, colIndex) }}
                       onMouseUpCapture={(e) => { e.button === 2 && handleMouseUpOnSquare(rowIndex, colIndex) }}
-                      className={`relative flex items-center justify-center aspect-square w-16 h-16 ${squareColor(rowIndex, colIndex)} cursor-pointer transition duration-200 ease-in-out select-none ${isSelected ? "ring-4 ring-yellow-400 z-10" : ""}`}
+                      className={`relative flex items-center justify-center aspect-square ${squareColor(rowIndex, colIndex)} cursor-pointer transition duration-200 ease-in-out select-none ${isSelected ? "ring-2 ring-yellow-400 z-10" : ""}`}
                     >
-                      {piece && !isBeingDragged && <img src={getPieceImage(piece)} alt="" className={`w-12 h-12 ${piece.color === turn ? "cursor-grab active:cursor-grabbing" : ""}`} draggable={false} />}
-                      {colIndex === 0 && (<div className="absolute left-1 top-1 text-xs text-gray-700 font-bold pointer-events-none">{boardOrientation === "white" ? 8 - rowIndex : rowIndex + 1}</div>)}
-                      {rowIndex === 7 && (<div className="absolute right-1 bottom-1 text-xs text-gray-700 font-bold pointer-events-none">{boardOrientation === "white" ? "abcdefgh"[colIndex] : "abcdefgh"[7 - colIndex]}</div>)}
-                      {isTarget && (<div className="absolute w-full h-full flex items-center justify-center"><div className="w-5 h-5 rounded-full bg-black bg-opacity-40 pointer-events-none"></div></div>)}
+                      {piece && !isBeingDragged && (
+                        <img
+                          src={getPieceImage(piece)}
+                          alt=""
+                          className={`w-[70%] h-[70%] ${piece.color === turn ? "cursor-grab active:cursor-grabbing" : ""}`}
+                          draggable={false}
+                        />
+                      )}
+                      {colIndex === 0 && (
+                        <div className="absolute left-1 top-1 text-xs text-gray-700 font-bold pointer-events-none">
+                          {boardOrientation === "white" ? 8 - rowIndex : rowIndex + 1}
+                        </div>
+                      )}
+                      {rowIndex === 7 && (
+                        <div className="absolute right-1 bottom-1 text-xs text-gray-700 font-bold pointer-events-none">
+                          {boardOrientation === "white" ? "abcdefgh"[colIndex] : "abcdefgh"[7 - colIndex]}
+                        </div>
+                      )}
+                      {isTarget && (
+                        <div className="absolute w-full h-full flex items-center justify-center">
+                          <div className="w-[25%] h-[25%] rounded-full bg-black bg-opacity-40 pointer-events-none"></div>
+                        </div>
+                      )}
                     </div>
                   );
                 })
@@ -401,42 +635,81 @@ const ChessBoard = () => {
             </div>
             <svg className="absolute top-0 left-0 w-full h-full pointer-events-none z-20">
               <defs>
-                <marker id="arrowhead" markerWidth="2.5" markerHeight="3.5" refX="2.2" refY="1.75" orient="auto">
-                  <polygon points="0 0, 2.5 1.75, 0 3.5" fill="#facc15" />
+                <marker id="arrowhead-mobile" markerWidth="2.5" markerHeight="3.5" refX="2.2" refY="1.75" orient="auto">
+                  <polygon points="0 0, 2.5 1.75, 0 3.5" fill="#FBBF24" />
                 </marker>
               </defs>
               {arrows.map((arrow, i) => {
                 const from = squareToCoords(arrow.from);
                 const to = squareToCoords(arrow.to);
-                return <line key={i} x1={from.x} y1={from.y} x2={to.x} y2={to.y} stroke="#facc15" strokeWidth="6" strokeOpacity="0.8" markerEnd="url(#arrowhead)" />;
+                return (
+                  <line
+                    key={i}
+                    x1={from.x}
+                    y1={from.y}
+                    x2={to.x}
+                    y2={to.y}
+                    stroke="#FBBF24"
+                    strokeWidth="3"
+                    strokeOpacity="0.9"
+                    markerEnd="url(#arrowhead-mobile)"
+                  />
+                );
               })}
+              {previewArrow && (
+                 <line
+                    x1={squareToCoords(previewArrow.from).x}
+                    y1={squareToCoords(previewArrow.from).y}
+                    x2={squareToCoords(previewArrow.to).x}
+                    y2={squareToCoords(previewArrow.to).y}
+                    stroke="#FBBF24"
+                    strokeWidth="3"
+                    strokeOpacity="0.8"
+                    markerEnd="url(#arrowhead-mobile)"
+                  />
+              )}
             </svg>
           </div>
-          <div className="text-xl font-semibold mt-2 text-gray-300 h-8">
-            {boardOrientation === "white" ? player1Name : player2Name}
+
+          <div className="text-center">
+            {game.inCheck() && !game.isCheckmate() && (
+              <div className="text-orange-400 font-medium">Check</div>
+            )}
+            {game.isCheckmate() && (
+              <div className="text-red-400 font-bold">
+                {turn === "w" ? "Black" : "White"} wins
+              </div>
+            )}
+            {game.isStalemate() && (
+              <div className="text-yellow-400">Stalemate</div>
+            )}
+            {game.isDraw() && !game.isCheckmate() && !game.isStalemate() && (
+              <div className="text-yellow-400">Draw</div>
+            )}
           </div>
-          <div className="text-center mt-4">
-            <div className="text-xl">{game.isGameOver() ? "Game Over" : `Turn: ${turn === "w" ? "White" : "Black"}`}</div>
-            {game.inCheck() && !game.isCheckmate() && (<div className="text-orange-400 font-semibold mt-1">{turn === "w" ? "White" : "Black"} is in check!</div>)}
-            {game.isCheckmate() && (<div className="text-red-500 font-bold mt-1">{turn === "w" ? "Black" : "White"} wins by checkmate!</div>)}
-            {game.isStalemate() && (<div className="text-yellow-400 mt-1">Stalemate!</div>)}
-            {game.isDraw() && !game.isCheckmate() && !game.isStalemate() && (<div className="text-yellow-400 mt-1">Draw!</div>)}
-          </div>
-          <div className="flex flex-wrap justify-center gap-4 mt-4">
-            <button onClick={handleGoBack} className="px-4 py-2 bg-gray-600 hover:bg-gray-700 rounded-lg text-white font-semibold">{"<"}</button>
-            <button onClick={handleGoForward} className="px-4 py-2 bg-gray-600 hover:bg-gray-700 rounded-lg text-white font-semibold">{">"}</button>
-            <button
-              onClick={() => setIsPlaying(p => !p)}
-              className="w-24 px-6 py-2 bg-teal-600 hover:bg-teal-700 rounded-lg text-white font-semibold transition-colors disabled:bg-gray-500 disabled:cursor-not-allowed"
-              disabled={!isPlaying && currentNode.children.length === 0}
-            >
-              {isPlaying ? 'Pause' : 'Play'}
-            </button>
-            <button onClick={resetGame} className="px-6 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-white font-semibold">New Game</button>
-            <button onClick={flipBoard} className="px-6 py-2 bg-green-600 hover:bg-green-700 rounded-lg text-white font-semibold">Flip Board</button>
+
+          <div className="w-full max-w-[90vw] space-y-6">
+            <Toolbar
+              onLoadFen={handleLoadFen}
+              onLoadPgn={handleLoadPgn}
+              onGoBack={handleGoBack}
+              onGoForward={handleGoForward}
+              onPlay={() => setIsPlaying(p => !p)}
+              onReset={resetGame}
+              onFlip={flipBoard}
+              isPlaying={isPlaying}
+              canGoBack={!!currentNode.parent}
+              canGoForward={currentNode.children.length > 0}
+              currentTurn={turn}
+            />
+            
+            <MoveHistory
+              historyRoot={historyRoot}
+              currentNode={currentNode}
+              onNodeClick={handleNodeClick}
+            />
           </div>
         </div>
-        <MoveHistory historyRoot={historyRoot} currentNode={currentNode} onNodeClick={handleNodeClick} />
       </div>
     </div>
   );
