@@ -8,7 +8,7 @@ const getPieceImage = (piece) => {
   const colorName = piece.color === "w" ? "white" : "black";
   const pieceNames = { p: "pawn", r: "rook", n: "knight", b: "bishop", q: "queen", k: "king" };
   const pieceName = pieceNames[piece.type];
-  return `public/src/assets/pieces-basic-png/${colorName}-${pieceName}.png`;
+  return `.\\src\\assets\\pieces-basic-png\\${colorName}-${pieceName}.png`;
 };
 
 const squareColor = (i, j) => (i + j) % 2 === 0 ? "bg-[#EBECD0]" : "bg-[#779556]";
